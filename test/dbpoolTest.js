@@ -12,6 +12,7 @@ const idbp = require('../lib/idb-pconnector');
 
 const { DBPool } = idbp;
 const DBPoolConnection = require('../lib/dbPoolConnection');
+const Connection = require('../lib/connection');
 
 describe('DBPool Class Tests', () => {
   describe('createConnection', async () => {
@@ -116,7 +117,7 @@ describe('DBPool Class Tests', () => {
   describe('retireAll', async () => {
     it('removes all connections from the pool', async () => {
       const pool = new DBPool({ url: '*LOCAL' });
-
+      pool.attach();
       expect(pool.connections.length).to.equal(8);
 
       await pool.retireAll();
@@ -215,5 +216,49 @@ describe('DBPool Class Tests', () => {
           throw error;
         });
       });
+  });
+  describe('new connection event', () => {
+    it('executes a callback when new connection event occurs', (done) => {
+      const pool = new DBPool({ url: '*LOCAL' });
+      // register the listener
+      pool.on('new connection', (connection) => {
+        expect(connection).to.be.instanceof(Connection);
+        done();
+      });
+      pool.createConnection();
+    });
+
+    it('sets up library list for every new connection', (done) => {
+      const pool = new DBPool({ url: '*LOCAL'}, { incrementSize: 3 });
+      let counter = 0;
+
+      pool.on('new connection', async (connection) => {
+        await connection.setLibraryList(['QXMLSERV', 'QGPL', 'QIWS']);
+        counter += 1;
+        if (counter == 3) {
+           checkLibList();
+        }
+      });
+
+      // init the pool with 3 connections
+      pool.attach();
+
+     async function checkLibList() {
+      for (let connection of pool.connections) {
+        // eslint-disable-next-line no-await-in-loop
+        let result = await connection.getStatement().exec("SELECT * from qsys2.library_list_info WHERE TYPE = 'USER'");
+        expect(result).to.be.a('array');
+        console.log(result);
+        expect(result[0]).to.be.a('object');
+        console.log(result[0]);
+        expect(result[0].SCHEMA_NAME).to.equal('QXMLSERV');
+        expect(result[1]).to.be.a('object');
+        expect(result[1].SCHEMA_NAME).to.equal('QGPL');
+        expect(result[2]).to.be.a('object');
+        expect(result[2].SCHEMA_NAME).to.equal('QIWS');
+      }
+        done();
+      }
+    });
   });
 });
